@@ -1023,6 +1023,11 @@ check_components! {
 }
 ```
 
+# Debugging Techniques
+
+- When compile errors are shown for a failed component wiring, try to identify the root cause by walking through the transitive dependencies shown within the error messages.
+- When you suspect that a required CGP component is not implemented for a context, try include that component in `check_components!` so that the error can be narrowed down.
+    - Note that not all trait are necessarily CGP component. An unsatisfied dependency can also be just regular trait or blanket trait. These dependencies cannot be verified via `check_components!`.
 
 # General Instructions
 
