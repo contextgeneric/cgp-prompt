@@ -841,30 +841,12 @@ delegate_components! {
 
 The example above helps `App` to implement `CanSerializeValue<u64>` by delegating to the `UseSerde` provider, and `CanSerializeValue<Person>` to `SerializeWithDisplay`, via the `UseDelegate` provider using `ValueSerializerComponents` as the inner lookup table based on the `Value` types.
 
-## `CanUseComponent` Check Trait
+## Check Traits
 
 - The CGP component wiring is lazy, i.e. when a `DelegateComponent` impl is defined, the type system doesn't check whether the corresponding traits are truly implemented by a context with all transitive dependencies satisfied.
 - When a consumer trait is used with a context, but there are unsatisfied dependencies, the compiler will produce short error messages that are difficult to debug and identify the root cause.
 - To ensure that a consumer is implemented by a context, we implement check traits to assert at compile time that the wiring is complete.
-- The `CanUseComponent` trait is a check trait defined as follows:
 
-```rust
-pub trait CanUseComponent<Component, Params: ?Sized = ()> {}
-
-impl<Context, Component, Params: ?Sized> CanUseComponent<Component, Params> for Context
-where
-    Context: DelegateComponent<Component>,
-    Context::Delegate: IsProviderFor<Component, Context, Params>,
-{}
-```
-
-- `CanUseComponent` for a CGP component is automatically implemented for a context, if a context delegates the component to a provider, and the provider implements the provider trait for that context.
-- The check is done via `IsProviderFor`, to ensure that the compiler generates appropriate error messages when there is any unsatisfied constraint.
-    - Without `IsProviderFor`, Rust would conceal the indirect errors and only show that the provider trait is not implemented without providing further details.
-
-## `check_components!` Macro
-
-- The `check_components!` macro generates code that checks the CGP wiring of components using `CanUseComponent`.
 - For example, given:
 
 ```rust
@@ -901,7 +883,45 @@ delegate_components! {
 }
 ```
 
-- The `Person` struct above incorrectly contains a `first_name` field, instead of the `name` field expected by `GreetHello` via `HasName`.
+The `Person` struct above incorrectly contains a `first_name` field, instead of the `name` field expected by `GreetHello` via `HasName`.
+
+- We can write a check trait to check whether `Person` implements `CanGreet` as follows:
+
+```rust
+trait CanUsePerson: CanGreet {}
+impl CanUsePerson for Person {}
+```
+
+- A check trait like `CanUsePerson` is a dummy trait that includes the dependencies that we want to check as its super trait.
+- The check trait contains an empty body that can be trivially implemented if all the supertrait constraints are satisfied.
+- We then implement the check trait for the context type that we want to check. If the type also implements all the supertraits, then the implementation is successful and the test passes.
+
+## `CanUseComponent` Trait
+
+- It is insufficient to use check traits alone in case when a check fails. This is because Rust would not produce sufficient details in the error message to help inform us on what dependency is missing.
+- For example, the `CanUsePerson` check earlier only output a vague error that tells us `GreetHello: Greeter<Person>` is not implemented, without telling us why.
+- We can use check traits together with `CanUseComponent` as their supertraits to force the Rust compiler to show more error details.
+- The `CanUseComponent` trait is a check trait defined as follows:
+
+```rust
+pub trait CanUseComponent<Component, Params: ?Sized = ()> {}
+
+impl<Context, Component, Params: ?Sized> CanUseComponent<Component, Params> for Context
+where
+    Context: DelegateComponent<Component>,
+    Context::Delegate: IsProviderFor<Component, Context, Params>,
+{}
+```
+
+- `CanUseComponent` for a CGP component is automatically implemented for a context, if a context delegates the component to a provider, and the provider implements the provider trait for that context.
+- The check is done via `IsProviderFor`, to ensure that the compiler generates appropriate error messages when there is any unsatisfied constraint.
+    - Without `IsProviderFor`, Rust would conceal the indirect errors and only show that the provider trait is not implemented without providing further details.
+
+## `check_components!` Macro
+
+- Additionally, instead of defining the check traits manually, we can use `check_components!` to simplify the definition of the compile time tests.
+- The `check_components!` macro generates code that checks the CGP wiring of components using `CanUseComponent`.
+
 - The static check is written with `check_components!` as follow:
 
 ```rust
