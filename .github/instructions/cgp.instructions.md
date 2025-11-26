@@ -13,6 +13,53 @@ This guide gives you a high level overview on how to work with CGP code in Rust.
 - CGP is a modular programming paradigm that provides workaround on the coherence restrictions in Rust.
 - You can write multiple overlapping or orphan trait implementations implementations in CGP, and then wire them through a concrete context.
 
+## Blanket Traits
+
+- CGP evolves from the use of blanket trait implementations, also commonly called extension traits.
+- This is widely used in Rust today with examples like `StreamExt` and `IterTools`. But CGP takes this concept and pushes it much further.
+- The core idea of CGP is that we can use the `where` clause of a blanket trait impl to hide the constraints needed from the trait interface.
+- For example, given:
+
+```rust
+pub trait CanGreet {
+    fn greet(&self);
+}
+
+pub trait HasName {
+    fn name(&self) -> &str;
+}
+
+impl<Context> CanGreet for Context
+where
+    Context: HasName,
+{
+    fn greet(&self) {
+        println!("Hello, {}!", self.name());
+    }
+}
+```
+
+The blanket implementation of `CanGreet` above hides the `HasName` dependency from the trait interface.
+
+- This concept of hiding constraints inside blanket impls is also known as impl-side dependencies, or dependency injection.
+
+- Blanket traits are preferred over generic functions, because they provide cleaner interface and don't require the caller to specify all constraints, in case if the caller is also generic.
+- For example, if `CanGreet` is defined as a generic function instead:
+
+```rust
+pub fn greet<Context>(context: &Context)
+where
+    Context: HasName,
+{
+    println!("Hello, {}!", context.name());
+}
+```
+
+then the all transitive callers of `greet` would also need to specify the `Context: HasName` constraint, which can be tedious to manage.
+
+- Note that blanket traits are not CGP components, but it is commonly used together with CGP.
+- In particular, it is preferred to start writing generic code as blanket traits instead of generic functions first. And then if there is a need for multiple alternative implementations, we can easily convert the blanket trait into a CGP component later.
+
 ## Prelude
 
 - Almost all CGP constructs are imported through the prelude:
