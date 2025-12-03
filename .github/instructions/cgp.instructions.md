@@ -1090,6 +1090,104 @@ check_components! {
 }
 ```
 
+## Higher Order Providers
+
+- Higher order providers is a CGP design pattern that allows providers to accept other providers as generic parameters.
+
+- For example, with the `CanSerializeValue` trait:
+
+```rust
+#[cgp_component(ValueSerializer)]
+pub trait CanSerializeValue<Value: ?Sized> {
+    fn serialize<S>(&self, value: &Value, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer;
+}
+```
+
+we can define a higher order provider `SerializeIteratorWith` as follows:
+
+```rust
+#[cgp_impl(new SerializeIteratorWith<Provider>)]
+impl<Context, Value, Provider> ValueSerializer<Value> for Context
+where
+    for<'a> &'a Value: IntoIterator,
+    Provider: for<'a> ValueSerializer<Context, <&'a Value as IntoIterator>::Item>,
+{
+    fn serialize<S>(&self, value: &Value, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    { ... }
+}
+```
+
+- The behavior of the inner item serialization is now determined by the `Provider` generic parameter, instead of the context.
+
+- This static binding behavior allows the provider implementor to choose a specific provider, as compared to leaving it to be configurable by the concrete context.
+- For example, the following `SerializeIteratorWithContext` provider always uses the context to look up the inner item serializer:
+
+```rust
+#[cgp_impl(new SerializeIteratorWithContext)]
+impl<Context, Value> ValueSerializer<Value> for Context
+where
+    for<'a> &'a Value: IntoIterator,
+    Context: for<'a> CanSerializeValue<<&'a Value as IntoIterator>::Item>,
+{
+    fn serialize<S>(&self, value: &Value, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    { ... }
+}
+```
+
+## `UseContext` Provider
+
+- CGP defines a special `UseContext` provider that is automatically implemented for all CGP traits that are defined with macros like `#[cgp_component]`:
+
+```rust
+struct UseContext;
+```
+
+- For example, the `UseContext` implementation generated for `CanSerializeValue` is as follows:
+
+```rust
+#[cgp_impl(UseContext)]
+impl<Context, Value> ValueSerializer<Value> for Context
+where
+    Context: CanSerializeValue<Value>,
+{
+    fn serialize<S>(&self, value: &Value, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.serialize(value, serializer)
+    }
+}
+```
+
+- There is a duality between `UseContext` and the blanket implementation of consumer traits. Whereas the blanket implementation of the `CanSerializeValue` consumer trait uses a delegated provider that implements `ValueSerializer` to implement `CanSerializeValue`, the `UseContext` provider implements the `ValueSerializer` provider trait using `CanSerializeValue` implemented by the context.
+    - However, trying to delegate a consumer trait to `UseContext` would create a circular dependency, resulting in compile-time errors.
+- `UseContext` can mainly be used as a default provider for higher order providers, so that the default provider wired in the context is used when no explicit provider is specified.
+- For example, we can modify the earlier `SerializeIteratorWith` to use `UseContext` as a default provider:
+
+```rust
+pub struct SerializeIteratorWith<Provider = UseContext>(pub PhantomData<Provider>);
+
+#[cgp_impl(SerializeIteratorWith<Provider>)]
+impl<Context, Value, Provider> ValueSerializer<Value> for Context
+where
+    for<'a> &'a Value: IntoIterator,
+    Provider: for<'a> ValueSerializer<Context, <&'a Value as IntoIterator>::Item>,
+{
+    fn serialize<S>(&self, value: &Value, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    { ... }
+}
+```
+
+- This way, when no explicit provider is specified, `SerializeIteratorWith` would have the same behavior as `SerializeIteratorWithContext`.
+
 # Debugging Techniques
 
 - When compile errors are shown for a failed component wiring, try to identify the root cause by walking through the transitive dependencies shown within the error messages.
