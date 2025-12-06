@@ -1140,6 +1140,24 @@ where
 }
 ```
 
+- Note that not all providers that contain generic parameters are higher order providers. They only become higher order providers when the generic parameters are used with provider trait constraints in the `where` clause.
+- For example, the following provider is not a higher order provider:
+
+```rust
+#[cgp_impl(new GetName<Tag>)]
+impl<Context, Tag> NameGetter for Context
+where
+    Context: HasField<Tag, Value = String>,
+{
+    fn name(&self) -> &str {
+        self.get_field(PhantomData)
+    }
+}
+```
+
+- The code above uses the `UseField` pattern, where the `Tag` type is used as the field name to access the corresponding field value via `HasField`. But since there is no constraint for `Tag` to implement any provider trait, the provider `GetName` is not a higher order provider.
+
+
 ## `UseContext` Provider
 
 - CGP defines a special `UseContext` provider that is automatically implemented for all CGP traits that are defined with macros like `#[cgp_component]`:
@@ -1167,7 +1185,7 @@ where
 
 - There is a duality between `UseContext` and the blanket implementation of consumer traits. Whereas the blanket implementation of the `CanSerializeValue` consumer trait uses a delegated provider that implements `ValueSerializer` to implement `CanSerializeValue`, the `UseContext` provider implements the `ValueSerializer` provider trait using `CanSerializeValue` implemented by the context.
     - However, trying to delegate a consumer trait to `UseContext` would create a circular dependency, resulting in compile-time errors.
-- `UseContext` can mainly be used as a default provider for higher order providers, so that the default provider wired in the context is used when no explicit provider is specified.
+- A higher order provider may be configured to use `UseContext` as the default inner provider, so that the default provider wired in the context is used when no explicit provider is specified.
 - For example, we can modify the earlier `SerializeIteratorWith` to use `UseContext` as a default provider:
 
 ```rust
@@ -1186,7 +1204,9 @@ where
 }
 ```
 
+- The struct definition of `SerializeIteratorWith` is defined with `UseContext` being a default generic parameter for `Provider`.
 - This way, when no explicit provider is specified, `SerializeIteratorWith` would have the same behavior as `SerializeIteratorWithContext`.
+- Note that the default `UseContext` provider is only applicable for higher order providers with explicit struct definitions that contain the default generic parameter. Otherwise, there is no default provider involved, and the inner provider must always be specified explicitly.
 
 # Modularity Hierarchy
 
